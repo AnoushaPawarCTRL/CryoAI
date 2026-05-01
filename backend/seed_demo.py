@@ -1,4 +1,4 @@
-from app import app
+from backend.main import app
 from models import db, Iceberg
 
 with app.app_context():

@@ -11,3 +11,4 @@ The task of tracking icebergs is would usually take hours of tedious work every 
 - Model: TensorFlow
 - PostgreSQL flexible server
 - Cloud for media storage
+- JWT Authentication

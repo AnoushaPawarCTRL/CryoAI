@@ -32,13 +32,6 @@ export function Login() {
 
       console.log(response);
 
-      
-      if (!response) {
-        setBackendError("User doesn't exist");
-        setSubmitting(false);
-        return;
-      }
-
       navigate("/");
     } catch (err) {
       console.error(err);
