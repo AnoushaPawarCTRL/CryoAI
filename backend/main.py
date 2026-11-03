@@ -1,21 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from models import Iceberg, User  # ensures tables are registered
+from models import Iceberg, User  
 from routes import iceberg, auth
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
 
-# Create all tables on startup
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # your React dev server
+    allow_origins=["http://localhost:5173", "http://localhost:3000"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
