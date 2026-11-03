@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 import requests
 import os
+from rasterio.warp import transform as warp_transform
 
 router = APIRouter(tags=["icebergs"])
 
@@ -29,6 +30,17 @@ def calculate_area_from_mask(mask_path):
     area_m2 = white_pixel_count * pixel_area_m2
     return area_m2 / 3_429_904
 
+def centroid_from_mask(mask_path):
+    """Returns (lat, lon) of the mask's centre, converted from the GeoTIFF's CRS."""
+    with rasterio.open(mask_path) as src:
+        data = src.read(1)
+        rows, cols = np.nonzero(data)
+        if len(rows) == 0 or src.crs is None:
+            return None
+        x, y = src.xy(rows.mean(), cols.mean())
+        lons, lats = warp_transform(src.crs, "EPSG:4326", [x], [y])
+    return float(lats[0]), float(lons[0])
+
 def tiff_to_png(tiff_path, png_path, normalize=True):
     img = Image.open(tiff_path)
     if normalize:
@@ -43,14 +55,16 @@ def seed_demo(db: Session = Depends(get_db)):
     if not os.path.exists(tiff_mask):
         raise HTTPException(status_code=400, detail="Demo mask not found")
     area_sqnm = float(calculate_area_from_mask(tiff_mask))
+    lat, lon = centroid_from_mask(tiff_mask) or (-73.5, -40.0)
     iceberg = db.query(Iceberg).filter_by(name="A23A Demo Iceberg").first()
     if iceberg:
         iceberg.area = area_sqnm
+        iceberg.latitude, iceberg.longitude = lat, lon
         iceberg.status = "complete"
     else:
         iceberg = Iceberg(
             name="A23A Demo Iceberg",
-            latitude=-73.5, longitude=-40.0,
+            latitude=lat, longitude=lon,
             image_path="uploads/A23A_001.png",
             mask_path="masks/A23A_001_mask.png",
             area=area_sqnm, status="complete"
@@ -107,15 +121,20 @@ def upload_mask(
     mask_png_path = mask_tiff_path.replace(".tif", ".png")
     tiff_to_png(mask_tiff_path, mask_png_path)
     area_sqnm = float(calculate_area_from_mask(mask_tiff_path))
+    centroid = centroid_from_mask(mask_tiff_path)
     inferred = filename.replace("_mask.tif", "").replace(".tif", "")
     iceberg = db.query(Iceberg).filter_by(name=inferred).first()
     if iceberg:
         iceberg.mask_path = mask_png_path
         iceberg.area = area_sqnm
+        if centroid:
+            iceberg.latitude, iceberg.longitude = centroid
         iceberg.status = "complete"
     else:
         iceberg = Iceberg(
-            name=inferred, latitude=-73.5, longitude=-40.0,
+            name=inferred,
+            latitude=centroid[0] if centroid else -73.5,
+            longitude=centroid[1] if centroid else -40.0,
             image_path=os.path.join(UPLOAD_FOLDER, f"{inferred}.png") if os.path.exists(os.path.join(UPLOAD_FOLDER, f"{inferred}.png")) else "",
             mask_path=mask_png_path, area=area_sqnm, status="complete"
         )

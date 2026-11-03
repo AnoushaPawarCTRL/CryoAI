@@ -1,97 +1,42 @@
-/* ============================================================
-   Navbar — CryoAI
-   ============================================================ */
-
 .navbar {
-  position: fixed;
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
-  height: 80px;
-
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-
-  padding: 0 32px;
-
-  background: rgba(3, 13, 28, 0.85);
-  backdrop-filter: blur(8px);
-
-  border-bottom: 1px solid rgba(91, 200, 232, 0.2);
-
-  z-index: 100;
+  height: 68px;
+  padding: 0 max(24px, calc((100vw - 1160px) / 2));
+  background: rgba(7, 11, 18, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
 }
 
-/* ---------- Logo ---------- */
-.nav-brand {
-  display: flex;
-  align-items: center;
-  text-decoration: none;
-}
-
-/* 🔥 THIS controls your logo size */
-.nav-logo {
-  height: 60px;
-  width: auto;
-  object-fit: contain;
-
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.nav-logo:hover {
-  opacity: 0.85;
-  transform: scale(1.05);
-}
-
-/* ---------- Links ---------- */
 .nav-links {
   display: flex;
   align-items: center;
+  gap: 28px;
+  font-size: 15px;
 }
 
-.nav-links a {
-  color: white;
+.nav-links a:not(.btn) {
+  color: var(--muted);
   text-decoration: none;
-  font-size: 0.95rem;
-  margin-left: 24px;
-  letter-spacing: 0.05em;
-
-  position: relative;
-  transition: color 0.2s ease;
+  transition: color 0.15s;
 }
 
-.nav-links a::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: -4px;
-  width: 0%;
-  height: 1px;
-  background: #5bc8e8;
-  transition: width 0.2s ease;
+.nav-links a:not(.btn):hover {
+  color: var(--text);
 }
 
-.nav-links a:hover {
-  color: #5bc8e8;
+.nav-signin {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
 }
 
-.nav-links a:hover::after {
-  width: 100%;
-}
-
-/* ---------- Responsive ---------- */
-@media (max-width: 600px) {
-  .navbar {
-    padding: 0 16px;
-  }
-
-  .nav-logo {
-    height: 36px;
-  }
-
-  .nav-links a {
-    font-size: 0.85rem;
-    margin-left: 16px;
+@media (max-width: 640px) {
+  .nav-links a:not(.btn) {
+    display: none;
   }
 }

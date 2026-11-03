@@ -1,140 +1,125 @@
-import React, { useState } from "react";
+import { FormEvent, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Wordmark } from "../components/Navbar";
+import { loginUser, registerUser } from "../api/auth";
 import "./Login.css";
 
-interface LoginProps {
-  onBack: () => void;
-  onLoginSuccess?: (email: string) => void;
-}
+type Mode = "login" | "signup";
 
-const Login: React.FC<LoginProps> = ({ onBack, onLoginSuccess }) => {
+const copy = {
+  login: {
+    title: "Welcome back",
+    subtitle: "Sign in to your CryoAI account.",
+    submit: "Sign in",
+    switchText: "New to CryoAI?",
+    switchLink: "Create an account",
+    switchTo: "/signup",
+  },
+  signup: {
+    title: "Create your account",
+    subtitle: "Save uploads and come back to your icebergs later.",
+    submit: "Create account",
+    switchText: "Already have an account?",
+    switchLink: "Sign in",
+    switchTo: "/login",
+  },
+};
+
+// One form used for both sign in and sign up
+export function AuthForm({ mode }: { mode: Mode }) {
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const text = copy[mode];
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+
     if (!email || !password) {
-      setError("Please fill in all fields.");
+      setError("Please fill in both fields.");
       return;
     }
+    if (mode === "signup" && password.length < 8) {
+      setError("Use at least 8 characters for your password.");
+      return;
+    }
+
     setLoading(true);
-    // TODO: replace with real auth call
-    await new Promise((res) => setTimeout(res, 800));
-    setLoading(false);
-    onLoginSuccess?.(email);
+    try {
+      if (mode === "login") await loginUser(email, password);
+      else await registerUser(email, password);
+      navigate("/app");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="login-root">
-      <div className="login-bg-grid" aria-hidden="true" />
-      <div className="login-bg-glow" aria-hidden="true" />
+    <div className="auth">
+      <header className="auth-top">
+        <Wordmark />
+      </header>
 
-      {/* Nav */}
-      <nav className="login-nav">
-        <button className="login-logo-btn" onClick={onBack} aria-label="Back to home">
-          <img src="/src/assets/logo.png" alt="CryoAI" className="logo-img" />
-        </button>
-      </nav>
+      <main className="auth-main">
+        <div className="auth-card">
+          <h1>{text.title}</h1>
+          <p className="auth-subtitle">{text.subtitle}</p>
 
-      {/* Card */}
-      <main className="login-main">
-        <div className="login-card">
-          <div className="login-card-header">
-            <h1 className="login-title">Welcome back</h1>
-            <p className="login-subtitle">Sign in to your CryoAI account</p>
-          </div>
-
-          <form className="login-form" onSubmit={handleSubmit} noValidate>
-            <div className="field-group">
-              <label className="field-label" htmlFor="email">
-                Email
-              </label>
+          <form onSubmit={handleSubmit} noValidate>
+            <label className="field">
+              <span>Email</span>
               <input
-                id="email"
                 type="email"
-                className="field-input"
                 placeholder="you@organisation.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
               />
-            </div>
+            </label>
 
-            <div className="field-group">
-              <label className="field-label" htmlFor="password">
-                Password
-              </label>
+            <label className="field">
+              <span>Password</span>
               <input
-                id="password"
                 type="password"
-                className="field-input"
-                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
               />
-              <a href="#" className="forgot-link">
-                Forgot password?
-              </a>
-            </div>
+            </label>
 
             {error && (
-              <p className="login-error" role="alert">
+              <p className="auth-error" role="alert">
                 {error}
               </p>
             )}
 
-            <button
-              type="submit"
-              className={`btn-login-submit ${loading ? "loading" : ""}`}
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="spinner" aria-label="Signing in…" />
-              ) : (
-                "SIGN IN"
-              )}
+            <button type="submit" className="btn btn-primary auth-submit" disabled={loading}>
+              {loading ? "Please wait…" : text.submit}
             </button>
           </form>
 
-          <div className="login-card-footer">
-            <span>Don't have an account?</span>
-            <a href="#" className="register-link">
-              Create one free
-            </a>
+          <div className="auth-divider">
+            <span>or</span>
           </div>
-        </div>
 
-        {/* Decorative iceberg shard */}
-        <div className="login-deco" aria-hidden="true">
-          <svg viewBox="0 0 200 300" xmlns="http://www.w3.org/2000/svg">
-            <polygon
-              points="100,0 180,80 160,180 100,240 40,180 20,80"
-              fill="url(#shardGrad)"
-              opacity="0.18"
-            />
-            <polygon
-              points="100,20 165,85 148,170 100,220 52,170 35,85"
-              fill="url(#shardGrad2)"
-              opacity="0.12"
-            />
-            <defs>
-              <linearGradient id="shardGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#b8eefb" />
-                <stop offset="100%" stopColor="#4aa8d0" />
-              </linearGradient>
-              <linearGradient id="shardGrad2" x1="1" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#e8f6fc" />
-                <stop offset="100%" stopColor="#3a8ab0" />
-              </linearGradient>
-            </defs>
-          </svg>
+          <Link to="/app" className="btn btn-ghost auth-submit">
+            Continue as guest
+          </Link>
+
+          <p className="auth-switch">
+            {text.switchText} <Link to={text.switchTo}>{text.switchLink}</Link>
+          </p>
         </div>
       </main>
     </div>
   );
-};
+}
 
-export default Login;
+export default function Login() {
+  return <AuthForm mode="login" />;
+}

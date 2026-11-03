@@ -6,7 +6,7 @@ Tracking icebergs by hand means hours of manually outlining shapes on satellite 
 
 Built as my final year project for a BSc in Computer Science at Brunel University London.
 
-<!-- TODO: add a screenshot or GIF of the app here -->
+![CryoAI globe view](docs/screenshot.png)
 
 ## How it works
 

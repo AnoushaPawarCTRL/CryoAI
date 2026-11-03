@@ -1,3 +1,5 @@
-export function Signup() {
-  return <div>Signup Page</div>;
+import { AuthForm } from "./Login";
+
+export default function Signup() {
+  return <AuthForm mode="signup" />;
 }

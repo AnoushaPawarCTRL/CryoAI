@@ -1,211 +1,279 @@
-import { useState, useEffect } from "react";
-import Globe from "react-globe.gl";
-import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import Globe, { GlobeMethods } from "react-globe.gl";
+import { Wordmark } from "../components/Navbar";
 import SegmentationOverlay from "../components/SegmentationOverlay";
+import { currentUserEmail, logout } from "../api/auth";
+import { fetchIcebergs, fileUrl, Iceberg, loadDemo, SQ_NM_TO_KM2, uploadImage } from "../api/icebergs";
+import "./HomePage.css";
 
-type Iceberg = {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  image_path?: string;
-  mask_path?: string;
-  status?: string;
-  area?: number;
-};
+const SIDEBAR_WIDTH = 380;
+const TOPBAR_HEIGHT = 60;
 
-export function HomePage() {
-  const [icebergs, setIcebergs] = useState<Iceberg[]>([]);
-  const [selectedIceberg, setSelectedIceberg] = useState<Iceberg | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [notification, setNotification] = useState<string | null>(null);
+function formatArea(sqnm: number | null | undefined) {
+  if (sqnm == null) return null;
+  const km2 = sqnm * SQ_NM_TO_KM2;
+  return {
+    km2: km2.toLocaleString(undefined, { maximumFractionDigits: 0 }),
+    sqnm: sqnm.toLocaleString(undefined, { maximumFractionDigits: 1 }),
+  };
+}
 
-  const navigate = useNavigate();
+function formatCoord(lat: number, lng: number) {
+  const ns = lat < 0 ? "S" : "N";
+  const ew = lng < 0 ? "W" : "E";
+  return `${Math.abs(lat).toFixed(2)}°${ns} ${Math.abs(lng).toFixed(2)}°${ew}`;
+}
 
+// Keeps the globe sized to the space left of the sidebar
+function useGlobeSize() {
+  const calc = () => ({
+    width: Math.max(window.innerWidth - SIDEBAR_WIDTH, 320),
+    height: window.innerHeight - TOPBAR_HEIGHT,
+  });
+  const [size, setSize] = useState(calc);
   useEffect(() => {
-    axios
-      .get("http://127.0.0.1:5000/icebergs", { timeout: 5000 })
-      .then((res) => setIcebergs(res.data))
-      .catch((err) => console.error("AXIOS ERROR:", err));
+    const onResize = () => setSize(calc());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return size;
+}
+
+export default function HomePage() {
+  const navigate = useNavigate();
+  const globeRef = useRef<GlobeMethods | undefined>(undefined);
+  const size = useGlobeSize();
+  const email = currentUserEmail();
+
+  const [icebergs, setIcebergs] = useState<Iceberg[]>([]);
+  const [selected, setSelected] = useState<Iceberg | null>(null);
+  const [showMask, setShowMask] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    try {
+      setIcebergs(await fetchIcebergs());
+      setError("");
+    } catch {
+      setError("Can't reach the API at localhost:8000. Is the backend running?");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // Poll for updated icebergs every 5 seconds if there's a notification
   useEffect(() => {
-    if (!notification) return;
+    refresh();
+  }, [refresh]);
 
-    const interval = setInterval(() => {
-      axios
-        .get("http://127.0.0.1:5000/refresh-icebergs", { timeout: 5000 })
-        .then((res) => setIcebergs(res.data))
-        .catch((err) => console.error("REFRESH ERROR:", err));
-    }, 5000);
+  // Poll while any iceberg is still waiting for a mask
+  useEffect(() => {
+    if (!icebergs.some((i) => i.status === "pending")) return;
+    const id = setInterval(refresh, 5000);
+    return () => clearInterval(id);
+  }, [icebergs, refresh]);
 
-    return () => clearInterval(interval);
-  }, [notification]);
+  // Slow spin until the user picks an iceberg
+  useEffect(() => {
+    const controls = globeRef.current?.controls();
+    if (!controls) return;
+    controls.autoRotate = !selected;
+    controls.autoRotateSpeed = 0.35;
+  }, [selected, size]);
 
-  const uploadImage = async () => {
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await axios.post(
-        "http://localhost:5000/upload-image",
-        formData
+  const select = (iceberg: Iceberg | null) => {
+    setSelected(iceberg);
+    setShowMask(true);
+    if (iceberg) {
+      globeRef.current?.pointOfView(
+        { lat: iceberg.latitude, lng: iceberg.longitude, altitude: 1.4 },
+        1200
       );
-
-      setIcebergs((prev) => [...prev, res.data]);
-      setFile(null);
-    } catch (err) {
-      console.error("UPLOAD ERROR:", err);
     }
   };
 
-  // Listen for mask generation notifications via broadcast
-  useEffect(() => {
-    const handleNotification = () => {
-      setNotification("✅ Mask has been generated and saved!");
-      setTimeout(() => setNotification(null), 5000);
-    };
+  const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      const created = await uploadImage(file);
+      setIcebergs((prev) => [...prev, created]);
+    } catch {
+      setError("Upload failed. Check the file is a GeoTIFF (.tif).");
+    } finally {
+      setBusy(false);
+    }
+  };
 
-    window.addEventListener("maskReady", handleNotification);
+  const handleDemo = async () => {
+    setBusy(true);
+    try {
+      await loadDemo();
+      await refresh();
+    } catch {
+      setError("Couldn't load the demo iceberg.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
-    return () =>
-      window.removeEventListener("maskReady", handleNotification);
-  }, []);
+  const handleSignOut = () => {
+    logout();
+    navigate("/");
+  };
+
+  const rings = useMemo(() => (selected ? [selected] : []), [selected]);
+  const selectedArea = formatArea(selected?.area);
+  const imageUrl = fileUrl(selected?.image_path);
+  const maskUrl = fileUrl(selected?.mask_path);
 
   return (
-    <div style={{ height: "100vh", width: "100vw", position: "relative" }}>
-      {/* Notification Banner */}
-      {notification && (
-        <div
-          style={{
-            position: "absolute",
-            zIndex: 15,
-            top: 20,
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: "#4CAF50",
-            color: "white",
-            padding: "12px 20px",
-            borderRadius: 8,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-            fontSize: 14,
-            fontWeight: "bold",
-          }}
-        >
-          {notification}
-        </div>
-      )}
-
-      {/* Upload */}
-      <div
-        style={{
-          position: "absolute",
-          zIndex: 5,
-          top: 80,
-          left: 20,
-          background: "rgba(0,0,0,0.6)",
-          padding: "10px 12px",
-          borderRadius: 8,
-        }}
-      >
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          style={{ color: "white" }}
-        />
-        <button onClick={uploadImage} style={{ marginLeft: 8 }}>
-          Upload
-        </button>
-      </div>
-
-      <Globe
-        globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
-        bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
-        backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
-        pointsData={icebergs}
-        pointLat="latitude"
-        pointLng="longitude"
-        pointRadius={2}
-        pointAltitude={0.1}
-        pointColor={() => "red"}
-        width={window.innerWidth}
-        height={window.innerHeight}
-        onPointClick={(d) => setSelectedIceberg(d as Iceberg)}
-      />
-
-      {selectedIceberg && (
-        <div
-          style={{
-            position: "absolute",
-            top: 100,
-            right: 20,
-            width: 360,
-            background: "white",
-            padding: "16px 12px 12px",
-            borderRadius: 8,
-            zIndex: 10,
-            boxShadow: "0 0 10px rgba(0,0,0,0.3)",
-          }}
-        >
-          <button
-            onClick={() => setSelectedIceberg(null)}
-            style={{
-              position: "absolute",
-              top: 8,
-              right: 8,
-              border: "none",
-              background: "transparent",
-              fontSize: 20,
-              fontWeight: "bold",
-              cursor: "pointer",
-              color: "#555",
-            }}
-            aria-label="Close"
-          >
-            ×
-          </button>
-
-          <h3>{selectedIceberg.name}</h3>
-
-          {selectedIceberg.image_path && selectedIceberg.mask_path ? (
-            <SegmentationOverlay
-              imageUrl={`http://localhost:5000/${selectedIceberg.image_path}`}
-              maskUrl={`http://localhost:5000/${selectedIceberg.mask_path}`}
-              hoverOnly={true}
-            />
+    <div className="dash">
+      <header className="dash-top">
+        <Wordmark />
+        <div className="dash-user">
+          {email ? (
+            <>
+              <span className="dash-email">{email}</span>
+              <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>
+                Sign out
+              </button>
+            </>
           ) : (
-            <p>No image or mask available</p>
+            <>
+              <span className="chip">Guest mode</span>
+              <Link to="/login" className="btn btn-ghost btn-sm">
+                Sign in
+              </Link>
+            </>
           )}
-
-          <p>Status: {selectedIceberg.status}</p>
-
-          <p>
-            Area:{" "}
-            {selectedIceberg.area != null
-              ? `${selectedIceberg.area.toFixed(1)} sq NM`
-              : "Calculating..."}
-          </p>
-
-          <button
-            onClick={() => navigate(`/history/${selectedIceberg.id}`)}
-            style={{ marginTop: 8, width: "100%" }}
-          >
-            View Full History
-          </button>
-
-          <button
-            onClick={() => setSelectedIceberg(null)}
-            style={{ marginTop: 6, width: "100%" }}
-          >
-            Close
-          </button>
         </div>
-      )}
+      </header>
+
+      <div className="dash-body">
+        <div className="dash-globe">
+          <Globe
+            ref={globeRef}
+            width={size.width}
+            height={size.height}
+            backgroundColor="rgba(0,0,0,0)"
+            globeImageUrl="/textures/earth-blue-marble.jpg"
+            bumpImageUrl="/textures/earth-topology.png"
+            atmosphereColor="#7dd3fc"
+            atmosphereAltitude={0.18}
+            pointsData={icebergs}
+            pointLat="latitude"
+            pointLng="longitude"
+            pointColor={(d) => ((d as Iceberg).status === "complete" ? "#5eead4" : "#fbbf24")}
+            pointAltitude={0.02}
+            pointRadius={0.9}
+            pointLabel={(d) => (d as Iceberg).name}
+            onPointClick={(d) => select(d as Iceberg)}
+            ringsData={rings}
+            ringLat="latitude"
+            ringLng="longitude"
+            ringColor={() => (t: number) => `rgba(94,234,212,${1 - t})`}
+            ringMaxRadius={4}
+            ringPropagationSpeed={2}
+            ringRepeatPeriod={1200}
+          />
+        </div>
+
+        <aside className="dash-side">
+          {error && <p className="dash-error">{error}</p>}
+
+          {selected ? (
+            <section className="detail">
+              <button className="back" onClick={() => select(null)}>
+                ← All icebergs
+              </button>
+              <h2>{selected.name}</h2>
+              <span className={`status status-${selected.status}`}>
+                {selected.status === "complete" ? "Segmented" : "Awaiting mask"}
+              </span>
+
+              {imageUrl && maskUrl ? (
+                <>
+                  <SegmentationOverlay imageUrl={imageUrl} maskUrl={maskUrl} showMask={showMask} />
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={showMask}
+                      onChange={(e) => setShowMask(e.target.checked)}
+                    />
+                    Show segmentation mask
+                  </label>
+                </>
+              ) : (
+                <div className="overlay-placeholder">No mask yet for this image.</div>
+              )}
+
+              <dl className="stats">
+                <div>
+                  <dt>Area</dt>
+                  <dd>{selectedArea ? `${selectedArea.km2} km²` : "Not measured"}</dd>
+                  {selectedArea && <dd className="sub">{selectedArea.sqnm} sq NM</dd>}
+                </div>
+                <div>
+                  <dt>Centroid</dt>
+                  <dd>{formatCoord(selected.latitude, selected.longitude)}</dd>
+                </div>
+              </dl>
+            </section>
+          ) : (
+            <>
+              <section className="panel">
+                <h2>Upload imagery</h2>
+                <p className="panel-text">
+                  Add a GeoTIFF satellite image. Its mask and area appear here once segmentation
+                  finishes.
+                </p>
+                <label className={`dropzone ${busy ? "is-busy" : ""}`}>
+                  <input type="file" accept=".tif,.tiff" onChange={handleUpload} disabled={busy} />
+                  {busy ? "Working…" : "Choose a .tif file"}
+                </label>
+              </section>
+
+              <section className="panel panel-list">
+                <div className="list-head">
+                  <h2>Icebergs</h2>
+                  <span className="mono-label">{icebergs.length} tracked</span>
+                </div>
+
+                {loading ? (
+                  <p className="panel-text">Loading…</p>
+                ) : icebergs.length === 0 ? (
+                  <div className="empty">
+                    <p className="panel-text">No icebergs yet. Load the demo to see A23A segmented.</p>
+                    <button className="btn btn-primary btn-sm" onClick={handleDemo} disabled={busy}>
+                      Load demo iceberg
+                    </button>
+                  </div>
+                ) : (
+                  <ul className="list">
+                    {icebergs.map((i) => {
+                      const area = formatArea(i.area);
+                      return (
+                        <li key={i.id}>
+                          <button onClick={() => select(i)}>
+                            <span className={`dot dot-${i.status}`} />
+                            <span className="list-name">{i.name}</span>
+                            <span className="list-area">{area ? `${area.km2} km²` : "pending"}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }
